@@ -27,6 +27,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv
 
+      - name: Create virtual environment
+        run: uv venv
+
       - name: Install dependencies with `uv`
         run: uv pip install -e .
 
