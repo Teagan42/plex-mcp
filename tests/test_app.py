@@ -8,7 +8,7 @@ from datetime import datetime
 # large datasets, and error handling.
 
 # --- Import the Module Under Test ---
-from plex_mcp.plex_mcp import (
+from plex_mcp import (
     MovieSearchParams,
     search_movies,
     get_movie_details,

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import functions from the main module.
-from plex_mcp.plex_mcp import (
+from plex_mcp import (
     get_plex_server,
     search_movies,
     list_playlists,
