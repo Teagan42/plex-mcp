@@ -28,7 +28,7 @@ jobs:
           pip install uv
 
       - name: Install dependencies with `uv`
-        run: uv install
+        run: uv pip install -e .
 
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=$(pwd)/src" >> $GITHUB_ENV
