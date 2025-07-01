@@ -1071,6 +1071,7 @@ async def control_client_playback(
         return f"ERROR: Client '{client.title}' does not support playback control."
 
     try:
+        command = MediaCommand(command)
         if command == MediaCommand.SEEK and seek_position is not None:
             client.seekTo(seek_position * 1000)
         elif command == MediaCommand.FAST_FORWARD:
@@ -1137,6 +1138,48 @@ async def turn_on_client_subtitles(
     Turns on subtitles for a specified Plex client.
     """
     return await set_client_subtitles(machine_identifier, True)
+
+@mcp.tool(
+    name="get_client_machine_identifier",
+    description="Get the machine identifier of a Plex client.",
+    annotations=ToolAnnotations(
+        title="Get Client Machine Identifier",
+    ),
+)
+async def get_client_machine_identifier(
+    client_name: Annotated[
+        str,
+        Field(
+            description="The name of the Plex client.",
+            examples=["Living Room TV", "Bedroom TV"],
+        ),
+    ],
+) -> str:
+    """
+    Retrieves the machine identifier of a specified Plex client.
+    Parameters:
+        client_name: The name of the Plex client.
+    Returns:
+        The machine identifier of the client or an error message if the client is not found.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+    try:
+        clients = await asyncio.to_thread(plex.sessions)
+
+        if not clients:
+            return "No active clients connected to your Plex server."
+
+        for _, m in enumerate(clients, start=1):
+            if m.player.title.lower() == client_name.lower(): # type: ignore
+                return f"Machine Identifier for client '{client_name}': {m.machineIdentifier}" # type: ignore
+        return f"ERROR: No client found with name '{client_name}'."
+    except Exception as e:
+        logger.exception("Failed to fetch client list.")
+        return f"ERROR: Failed to fetch client list. {str(e)}"
 
 
 async def set_client_subtitles(
