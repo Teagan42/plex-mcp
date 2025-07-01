@@ -937,7 +937,9 @@ async def get_active_clients(
         for i, m in enumerate(clients, start=1):
             if controllable and "playback" not in m.player.protocolCapabilities: # type: ignore
                 continue
-            results.append(f"Result #{i}:\nKey: {m.machineIdentifier}\n{format_client(m.player)}")  # type: ignore
+            results.append(
+                f"Result #{i}:\Machine Identifier: {m.machineIdentifier}\n{format_client(m.player)}"
+            )  # type: ignore
 
         return "\n---\n".join(results)
     except Exception as e:
