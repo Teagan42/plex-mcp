@@ -1236,9 +1236,9 @@ async def set_client_subtitles(
             if not item.media or not item.media[0].parts:
                 return f"ERROR: No media found for item  session on client '{client.title}'."
             for _, part in enumerate(item.media[0].parts):
-                if not part.subtitleStreams:
+                if not part.subtitleStreams():
                     continue
-                for _, subtitle in enumerate(part.subtitleStreams):
+                for _, subtitle in enumerate(part.subtitleStreams()):
                     if subtitle.language.lower() == "english" and not subtitle.forced:
                         client.setSubtitleStream(subtitle.index)
                         return f"Subtitles enabled on client '{client.title}'."
