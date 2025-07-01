@@ -23,7 +23,6 @@ from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.library import MovieSection, ShowSection
 from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
-from plexapi.base import PlexSession
 from pydantic import Field
 
 # --- Logging Setup ---
@@ -1030,10 +1029,10 @@ async def control_client_playback(
         ),
     ],
     command: Annotated[
-        MediaCommand,
+        str,
         Field(
             description="The playback command to send (play, pause, stop).",
-            examples=["play", "pause", "stop", "fastForward", "rewind", "skipNext", "skipPrevious", "volumeUp", "volumeDown", "mute", "unmute", "seek"],
+            examples=["play", "pause", "stop", "fastForward", "rewind", "skipNext", "skipPrevious", "seek"],
         ),
     ],
     seek_position: Annotated[
@@ -1644,21 +1643,6 @@ def run():
     os.environ["PLEX_SERVER_URL"] = args.plex_url
     os.environ["PLEX_TOKEN"] = args.plex_token
     PlexClient(args.plex_url, args.plex_token)  # Initialize singleton
-    # async def test():
-    #     server = await get_plex_server()
-    #     print(f"Connected to Plex server: {server.friendlyName}")
-    #     sessions = server.sessions()
-    #     print(f"Active sessions: {len(sessions)}")
-    #     for session in sessions:
-    #         print(f"Session: {session.title} (User: {session.usernames} {session})")  # type: ignore
-    #         items = server.fetchItems(session.key)
-    #         for _, item in enumerate(items):
-    #             print(f"Item: {item}")
-    #             for _, part in enumerate(item.media[0].parts):
-    #                 print(f" Part {part}:")
-    #                 for _, subtitle in enumerate(part.subtitleStreams()):
-    #                     print(f"  Subtitle: {subtitle} {subtitle.language} {subtitle.forced}")
-    # asyncio.run(test())
     asyncio.run(get_plex_server())
     if args.transport == "stdio":
         mcp.run(transport="stdio")
