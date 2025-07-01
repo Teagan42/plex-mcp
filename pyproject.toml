@@ -5,9 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastmcp>=2.9.2",
     "httpx>=0.28.1",
     "mcp[cli]>=1.6.0",
     "plexapi>=4.16.1",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+plex-mcp = "plex_mcp.plex_mcp:run"
