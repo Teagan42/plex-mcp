@@ -938,7 +938,7 @@ async def get_active_clients(
             if controllable and "playback" not in m.player.protocolCapabilities: # type: ignore
                 continue
             results.append(
-                f"Result #{i}:\Machine Identifier: {m.machineIdentifier}\n{format_client(m.player)}"
+                f"Result #{i}:\nMachine Identifier: {m.machineIdentifier}\n{format_client(m.player)}"
             )  # type: ignore
 
         return "\n---\n".join(results)
