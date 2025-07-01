@@ -958,7 +958,7 @@ async def play_media_on_client(
     machine_identifier: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
+            description="The machine identifier of the Plex client find this by calling the get_client_machine_identifier tool.",
             examples=["abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx"],
         ),
     ],
@@ -1026,7 +1026,7 @@ async def control_client_playback(
     machine_identifier: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
+            description="The machine identifier of the Plex client find this by calling the get_client_machine_identifier tool.",
             examples=["1234567890abcdef", "abcdef1234567890"],
         ),
     ],
@@ -1071,29 +1071,29 @@ async def control_client_playback(
         return f"ERROR: Client '{client.title}' does not support playback control."
 
     try:
-        command = MediaCommand(command)
-        if command == MediaCommand.SEEK and seek_position is not None:
+        command_enum = MediaCommand(command)
+        if command_enum == MediaCommand.SEEK and seek_position is not None:
             client.seekTo(seek_position * 1000)
-        elif command == MediaCommand.FAST_FORWARD:
+        elif command_enum == MediaCommand.FAST_FORWARD:
             client.stepForward()
-        elif command == MediaCommand.REWIND:
+        elif command_enum == MediaCommand.REWIND:
             client.stepBack()
-        elif command == MediaCommand.SKIP_NEXT:
+        elif command_enum == MediaCommand.SKIP_NEXT:
             client.skipNext()
-        elif command == MediaCommand.SKIP_PREVIOUS:
+        elif command_enum == MediaCommand.SKIP_PREVIOUS:
             client.skipPrevious()
-        elif command == MediaCommand.STOP:
+        elif command_enum == MediaCommand.STOP:
             client.stop()
-        elif command == MediaCommand.PAUSE:
+        elif command_enum == MediaCommand.PAUSE:
             client.pause()
-        elif command == MediaCommand.PLAY:
+        elif command_enum == MediaCommand.PLAY:
             client.play()
         else:
-            getattr(client, command.value)()
-        return f"Command '{command.value}' executed on client '{client.title}'."
+            return f"ERROR: Invalid command '{command}'."
+        return f"Command '{command}' executed on client '{client.title}'."
     except Exception as e:
-        logger.exception("Failed to execute command '%s' on client '%s'.", command.value, machine_identifier)
-        return f"ERROR: Failed to execute command '{command.value}' on client '{client.title}'. {str(e)}"
+        logger.exception("Failed to execute command '%s' on client '%s'.", command, machine_identifier)
+        return f"ERROR: Failed to execute command '{command}' on client '{client.title}'. {str(e)}"
 
 
 @mcp.tool(
@@ -1107,7 +1107,7 @@ async def turn_off_client_subtitles(
     machine_identifier: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
+            description="The machine identifier of the Plex client find this by calling the get_client_machine_identifier tool.",
             examples=["1234567890abcdef", "abcdef1234567890"],
         ),
     ],
@@ -1129,7 +1129,7 @@ async def turn_on_client_subtitles(
     machine_identifier: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
+            description="The machine identifier of the Plex client find this by calling the get_client_machine_identifier tool.",
             examples=["1234567890abcdef", "abcdef1234567890"],
         ),
     ],
