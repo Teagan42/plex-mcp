@@ -8,6 +8,7 @@ to handle non-blocking I/O and to provide informative error messages.
 """
 import argparse
 import asyncio
+from enum import StrEnum
 import logging
 import os
 from dataclasses import dataclass
@@ -20,7 +21,9 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.library import MovieSection, ShowSection
+from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
+from plexapi.base import PlexSession
 from pydantic import Field
 
 # --- Logging Setup ---
@@ -103,6 +106,25 @@ def format_episode(episode) -> str:
         f"Directors: {', '.join(directors) if directors else 'Unknown'}\n"
         f"Starring: {', '.join(actors) if actors else 'Unknown'}\n"
         f"Summary: {summary}\n"
+    )
+
+def format_client(client: PlexAPIClient) -> str:
+    """
+    Format a Plex client object into a human-readable string.
+    Parameters:
+        client: A Plex client object.
+    Returns:
+        A formatted string containing client details.
+    """
+    return (
+        f"Client: {client.title}\n"
+        f"Platform: {client.platform}\n"
+        f"Product: {client.product}\n"
+        f"Version: {client.version}\n"
+        f"Device: {client.device}\n"
+        f"State: {client.state}\n"
+        f"address: {client.address}\n"
+        f"User: {client.userID if client.userID else 'Unknown'}\n"
     )
 
 
@@ -560,6 +582,43 @@ async def get_movie_details(
 
 
 @mcp.tool(
+    name="get_new_movies",
+    description="Get a list of recently added movies in your Plex library.",
+    annotations=ToolAnnotations(
+        title="Get New Movies",
+    ),
+)
+async def get_new_movies() -> str:
+    """
+    Get list of recently added movies in your Plex library.
+
+    Returns:
+        A formatted string with the new movie details or an error message.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+    try:
+        library_section = movie_section(plex)
+        if not library_section:
+            return "ERROR: No movie section found in your Plex library."
+        movies = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
+
+        if not movies:
+            return "No new movies found in your Plex library."
+        results: List[str] = []
+        for i, m in enumerate(movies[:10], start=1):
+            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+
+        return "\n---\n".join(results)
+    except Exception as e:
+        logger.exception("Failed to fetch new movie list.")
+        return f"ERROR: Failed to fetch new movie list. {str(e)}"
+
+
+@mcp.tool(
     name="search_shows",
     description="Search for shows or episodes in your Plex library using various filters.",
     annotations=ToolAnnotations(
@@ -800,6 +859,314 @@ async def get_episode_details(
     except Exception as e:
         logger.exception("Failed to fetch episode details for key '%s'", episode_key)
         return f"ERROR: Failed to fetch episode details. {str(e)}"
+
+
+@mcp.tool(
+    name="get_new_shows",
+    description="Get a list of recently added episodes in your Plex library.",
+    annotations=ToolAnnotations(
+        title="Get New Shows",
+    ),
+)
+async def get_new_shows() -> str:
+    """
+    Get list of recently added episodes in your Plex library.
+
+    Returns:
+        A formatted string with the new episodes details or an error message.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+    try:
+        library_section = show_section(plex)
+        if not library_section:
+            return "ERROR: No show section found in your Plex library."
+        episodes = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
+
+        if not episodes:
+            return "No new episodes found in your Plex library."
+        results: List[str] = []
+        for i, m in enumerate(episodes[:10], start=1):
+            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+
+        return "\n---\n".join(results)
+    except Exception as e:
+        logger.exception("Failed to fetch new episode list.")
+        return f"ERROR: Failed to fetch new episode list. {str(e)}"
+
+
+@mcp.tool(
+    name="get_active_clients",
+    description="Get a list of active clients on your Plex server.",
+    annotations=ToolAnnotations(
+        title="Get Active Clients",
+    ),
+)
+async def get_active_clients(
+    controllable: Annotated[
+        Optional[bool],
+        Field(
+            description="If True, only return clients that can be controlled.",
+            default=True,
+            examples=[True, False],
+        ),
+    ] = True,
+) -> str:
+    """
+    Get list active clients on your Plex server.
+
+    Parameters:
+        controllable: If True, only return clients that can be controlled.
+
+    Returns:
+        A formatted string with the clients details or an error message.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+    try:
+        clients = await asyncio.to_thread(plex.sessions)
+
+        if not clients:
+            return "No active clients connected to your Plex server."
+        results: List[str] = []
+        for i, m in enumerate(clients, start=1):
+            if controllable and "playback" not in m.player.protocolCapabilities: # type: ignore
+                continue
+            results.append(f"Result #{i}:\nKey: {m.machineIdentifier}\n{format_client(m.player)}")  # type: ignore
+
+        return "\n---\n".join(results)
+    except Exception as e:
+        logger.exception("Failed to fetch client list.")
+        return f"ERROR: Failed to fetch client list. {str(e)}"
+
+
+@mcp.tool(
+    name="play_media_on_client",
+    description="Play specified media on a given Plex client.",
+    annotations=ToolAnnotations(
+        title="Play Media on Client",
+    ),
+)
+async def play_media_on_client(
+    machine_identifier: Annotated[
+        str,
+        Field(
+            description="The machine identifier of the Plex client to play media on.",
+            examples=["abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx"],
+        ),
+    ],
+    media_key: Annotated[
+        str,
+        Field(
+            description="The key of the media item to play.",
+            examples=["12345", "67890"],
+        ),
+    ],
+) -> str:
+    """
+    Play specified media on a given Plex client.
+    Parameters:
+        machine_identifier: The machine identifier of the Plex client.
+        media_key: The key of the media item to play.
+    Returns:
+        A success message or an error message.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+    try:
+        clients: list[PlexAPIClient] = await asyncio.to_thread(plex.clients)
+
+        if not clients:
+            return "No active clients connected to your Plex server."
+        client = next((m for m in clients if m.machineIdentifier == machine_identifier), None)
+        if not client:
+            return f"No client found with machine identifier {machine_identifier}."
+        if "playback" not in client.protocolCapabilities:
+            return f"Client {client.title} does not support playback control."
+
+        media = plex.fetchItems(int(media_key))
+        if not media:
+            return f"No media found with key {media_key}."
+        media = media[0]
+        await asyncio.to_thread(client.playMedia, media)
+        return f"Playing {media.title} on {client.title}." # type: ignore
+    except Exception as e:
+        logger.exception("Failed to play media on client.")
+        return f"ERROR: Failed to play media on client. {str(e)}"
+
+
+class MediaCommand(StrEnum):
+    PLAY = "play"
+    PAUSE = "pause"
+    STOP = "stop"
+    FAST_FORWARD = "fastForward"
+    REWIND = "rewind"
+    SKIP_NEXT = "skipNext"
+    SKIP_PREVIOUS = "skipPrevious"
+    SEEK = "seek"
+
+
+@mcp.tool(
+        name="control_client_playback",
+        description="Control playback on a specified Plex client (play, pause, stop).",
+        annotations=ToolAnnotations(
+            title="Control Client Playback",
+        ),)
+async def control_client_playback(
+    machine_identifier: Annotated[
+        str,
+        Field(
+            description="The machine identifier of the Plex client.",
+            examples=["1234567890abcdef", "abcdef1234567890"],
+        ),
+    ],
+    command: Annotated[
+        MediaCommand,
+        Field(
+            description="The playback command to send (play, pause, stop).",
+            examples=["play", "pause", "stop", "fastForward", "rewind", "skipNext", "skipPrevious", "volumeUp", "volumeDown", "mute", "unmute", "seek"],
+        ),
+    ],
+    seek_position: Annotated[
+        Optional[int],
+        Field(
+            description="The position in seconds to seek to (required if command is 'seek').",
+            examples=[60, 120, 300],
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """
+    Control playback on a specified Plex client (play, pause, stop).
+    Parameters
+        machine_identifier: The machine identifier of the Plex client.
+        command: The playback command to send (play, pause, stop).
+        seek_position: The position in seconds to seek to (required if command is 'seek').
+        duration: The duration in seconds to fast forward or rewind (required if command is 'fastForward' or 'rewind').
+    Returns:
+        A success message or an error message.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+    try:
+        client: PlexAPIClient = plex.client(machine_identifier)
+    except NotFound:
+        return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
+    except Exception as e:
+        return f"ERROR: Could not retrieve client. {str(e)}"
+
+    if "playback" not in client.protocolCapabilities:
+        return f"ERROR: Client '{client.title}' does not support playback control."
+
+    try:
+        if command == MediaCommand.SEEK and seek_position is not None:
+            client.seekTo(seek_position * 1000)
+        elif command == MediaCommand.FAST_FORWARD:
+            client.stepForward()
+        elif command == MediaCommand.REWIND:
+            client.stepBack()
+        elif command == MediaCommand.SKIP_NEXT:
+            client.skipNext()
+        elif command == MediaCommand.SKIP_PREVIOUS:
+            client.skipPrevious()
+        elif command == MediaCommand.STOP:
+            client.stop()
+        elif command == MediaCommand.PAUSE:
+            client.pause()
+        elif command == MediaCommand.PLAY:
+            client.play()
+        else:
+            getattr(client, command.value)()
+        return f"Command '{command.value}' executed on client '{client.title}'."
+    except Exception as e:
+        logger.exception("Failed to execute command '%s' on client '%s'.", command.value, machine_identifier)
+        return f"ERROR: Failed to execute command '{command.value}' on client '{client.title}'. {str(e)}"
+
+
+@mcp.tool(
+    name="set_client_subtitles",
+    description="Set subtitles for a specified Plex client.",
+    annotations=ToolAnnotations(
+        title="Set Client Subtitles",
+    ),
+)
+async def set_client_subtitles(
+    machine_identifier: Annotated[
+        str,
+        Field(
+            description="The machine identifier of the Plex client.",
+            examples=["1234567890abcdef", "abcdef1234567890"],
+        ),
+    ],
+    subtitles_on: Annotated[
+        bool,
+        Field(
+            description="Whether to turn subtitles on or off.",
+            examples=[True, False],
+        ),
+    ],
+) -> str:
+    """
+    Sets subtitles on or off for a specified Plex client.
+    Parameters:
+        machine_identifier: The machine identifier of the Plex client.
+        subtitles_on: Whether to turn subtitles on or off.
+    Returns
+        a success message or an error message if the operation fails.
+    """
+    try:
+        plex = await get_plex_server()
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
+    try:
+        client: PlexAPIClient = plex.client(machine_identifier)
+        if "playback" not in client.protocolCapabilities:
+            return f"ERROR: Client '{client.title}' does not support playback control."
+    except NotFound:
+        return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
+    except Exception as e:
+        return f"ERROR: Could not retrieve client. {str(e)}"
+
+    try:
+        sessions = await asyncio.to_thread(plex.sessions)
+        session = next((s for s in sessions if s.player.machineIdentifier == machine_identifier), None) # type: ignore
+        if not session:
+            return f"ERROR: No active session found for client '{client.title}'."
+        if not session.key:
+            return f"ERROR: No session key found for client '{client.title}'."
+        if not subtitles_on:
+            client.setSubtitleStream(-1)
+            return f"Subtitles disabled on client '{client.title}'."
+        items = plex.fetchItems(session.key)
+        if not items:
+            return f"ERROR: No media items found for session on client '{client.title}'."
+        for _, item in enumerate(items):
+            if not item.media or not item.media[0].parts:
+                return f"ERROR: No media found for item  session on client '{client.title}'."
+            for _, part in enumerate(item.media[0].parts):
+                if not part.subtitleStreams:
+                    continue
+                for _, subtitle in enumerate(part.subtitleStreams):
+                    if subtitle.language.lower() == "english" and not subtitle.forced:
+                        client.setSubtitleStream(subtitle.index)
+                        return f"Subtitles enabled on client '{client.title}'."
+        return f"ERROR: No English subtitles found for current media on client '{client.title}'."
+    except NotFound:
+        return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
+    except Exception as e:
+        logger.exception("Failed to set subtitles on client '%s'.", machine_identifier)
+        return f"ERROR: Could not set subtitles on client. {str(e)}"
 
 
 @mcp.tool(
@@ -1277,6 +1644,22 @@ def run():
     os.environ["PLEX_SERVER_URL"] = args.plex_url
     os.environ["PLEX_TOKEN"] = args.plex_token
     PlexClient(args.plex_url, args.plex_token)  # Initialize singleton
+    # async def test():
+    #     server = await get_plex_server()
+    #     print(f"Connected to Plex server: {server.friendlyName}")
+    #     sessions = server.sessions()
+    #     print(f"Active sessions: {len(sessions)}")
+    #     for session in sessions:
+    #         print(f"Session: {session.title} (User: {session.usernames} {session})")  # type: ignore
+    #         items = server.fetchItems(session.key)
+    #         for _, item in enumerate(items):
+    #             print(f"Item: {item}")
+    #             for _, part in enumerate(item.media[0].parts):
+    #                 print(f" Part {part}:")
+    #                 for _, subtitle in enumerate(part.subtitleStreams()):
+    #                     print(f"  Subtitle: {subtitle} {subtitle.language} {subtitle.forced}")
+    # asyncio.run(test())
+    asyncio.run(get_plex_server())
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     elif args.transport == "sse":

@@ -8,7 +8,6 @@ ENV MCP_PORT=
 ENV MCP_HOST=
 ENV MCP_MOUNT=
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD curl -f http://localhost:${MCP_PORT}/health || exit 1
 WORKDIR /app
 
 # Copy project files
