@@ -1168,7 +1168,7 @@ async def get_client_machine_identifier(
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
     try:
-        clients = await asyncio.to_thread(plex.sessions)
+        clients = await asyncio.to_thread(plex.clients)
 
         if not clients:
             return "No active clients connected to your Plex server."
