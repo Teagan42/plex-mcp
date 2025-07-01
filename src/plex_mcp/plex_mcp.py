@@ -958,7 +958,7 @@ async def play_media_on_client(
     machine_identifier: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client to play media on.",
+            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
             examples=["abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx"],
         ),
     ],
@@ -1026,7 +1026,7 @@ async def control_client_playback(
     machine_identifier: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client.",
+            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
             examples=["1234567890abcdef", "abcdef1234567890"],
         ),
     ],
@@ -1096,12 +1096,49 @@ async def control_client_playback(
 
 
 @mcp.tool(
-    name="set_client_subtitles",
-    description="Set subtitles for a specified Plex client.",
+    name="turn_off_client_subtitles",
+    description="Turn off Plex client subtitles.",
     annotations=ToolAnnotations(
-        title="Set Client Subtitles",
+        title="Turn Off Client Subtitles",
     ),
 )
+async def turn_off_client_subtitles(
+    machine_identifier: Annotated[
+        str,
+        Field(
+            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
+            examples=["1234567890abcdef", "abcdef1234567890"],
+        ),
+    ],
+) -> str:
+    """
+    Turns off subtitles for a specified Plex client.
+    """
+    return await set_client_subtitles(machine_identifier, False)
+
+
+@mcp.tool(
+    name="turn_on_client_subtitles",
+    description="Turn on Plex client subtitles.",
+    annotations=ToolAnnotations(
+        title="Turn On Client Subtitles",
+    ),
+)
+async def turn_on_client_subtitles(
+    machine_identifier: Annotated[
+        str,
+        Field(
+            description="The machine identifier of the Plex client find this by calling the get_active_clients tool.",
+            examples=["1234567890abcdef", "abcdef1234567890"],
+        ),
+    ],
+) -> str:
+    """
+    Turns on subtitles for a specified Plex client.
+    """
+    return await set_client_subtitles(machine_identifier, True)
+
+
 async def set_client_subtitles(
     machine_identifier: Annotated[
         str,
