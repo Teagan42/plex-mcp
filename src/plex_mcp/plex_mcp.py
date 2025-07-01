@@ -1174,7 +1174,7 @@ async def get_client_machine_identifier(
             return "No active clients connected to your Plex server."
 
         for _, m in enumerate(clients, start=1):
-            if m.player.title.lower() == client_name.lower(): # type: ignore
+            if m.title.lower() == client_name.lower(): # type: ignore
                 return f"Machine Identifier for client '{client_name}': {m.machineIdentifier}" # type: ignore
         return f"ERROR: No client found with name '{client_name}'."
     except Exception as e:
