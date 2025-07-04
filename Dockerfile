@@ -14,7 +14,5 @@ WORKDIR /app
 COPY . .
 ENTRYPOINT ["/app/entrypoint.sh"]
 # Upgrade pip and install dependencies
-RUN pip install --no-cache-dir uv==0.7.17 \
-    && uv build
 
 # Expose port if needed (not used for stdio transport)

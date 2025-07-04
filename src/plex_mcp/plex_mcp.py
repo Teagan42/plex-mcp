@@ -10,15 +10,18 @@ import argparse
 import asyncio
 from enum import StrEnum
 import logging
+
 import os
 from dataclasses import dataclass
 
 # --- Import Statements ---
 from typing import Annotated, Any, Dict, List, Optional
+from fastmcp.server.middleware.logging import LoggingMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from plexapi.base import PlexSession
 from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.library import MovieSection, ShowSection
 from plexapi.client import PlexClient as PlexAPIClient
@@ -365,6 +368,9 @@ async def get_plex_server() -> PlexServer:
         raise e
 
 
+mcp.add_middleware(LoggingMiddleware(logging.getLogger("MIDDLEWARE"), log_level=logging.INFO, include_payloads=True, ))
+
+
 @mcp.custom_route("/health", ["GET"], "health", False)
 async def health(request: Request) -> Response:
     try:
@@ -528,7 +534,7 @@ async def search_movies(
 
     if len(movies) > limit:
         results.append(f"\n... and {len(movies)-limit} more results.")
-
+    logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results)
 
 
@@ -572,6 +578,7 @@ async def get_movie_details(
 
         if not movie:
             return f"No movie found with key {movie_key}."
+        logger.info("Returning %s", format_movie(movie))
         return format_movie(movie)
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
@@ -610,7 +617,7 @@ async def get_new_movies() -> str:
         results: List[str] = []
         for i, m in enumerate(movies[:10], start=1):
             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
-
+        logger.info(("Returning %s new movies.", "\n---\n".join(results)))
         return "\n---\n".join(results)
     except Exception as e:
         logger.exception("Failed to fetch new movie list.")
@@ -848,10 +855,12 @@ async def get_episode_details(
         if not library_section:
             return "ERROR: No show section found in your Plex library."
         matching_episodes = await asyncio.to_thread(library_section.fetchItems, key)  # type: ignore
+        logger.info("Found %d episodes matching key: %s", len(matching_episodes), key)
         episode = next((m for m in matching_episodes if m.ratingKey == key), None)  # type: ignore
 
         if not episode:
             return f"No episode found with key {episode_key}."
+        logger.info("Found episode: %s", episode.title)
         return format_episode(episode)  # type: ignore
     except NotFound:
         return f"ERROR: Episode with key {episode_key} not found."
@@ -884,13 +893,13 @@ async def get_new_shows() -> str:
         if not library_section:
             return "ERROR: No show section found in your Plex library."
         episodes = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
-
+        logger.info("Found %d new episodes.", len(episodes))
         if not episodes:
             return "No new episodes found in your Plex library."
         results: List[str] = []
         for i, m in enumerate(episodes[:10], start=1):
             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
-
+        logger.info("Returning %s new episodes.", "\n---\n".join(results))
         return "\n---\n".join(results)
     except Exception as e:
         logger.exception("Failed to fetch new episode list.")
@@ -929,18 +938,20 @@ async def get_active_clients(
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
     try:
-        clients = await asyncio.to_thread(plex.sessions)
+        clients = await asyncio.to_thread(plex.clients)
 
         if not clients:
             return "No active clients connected to your Plex server."
+        logger.info("Found %d active clients.", len(clients))
         results: List[str] = []
-        for i, m in enumerate(clients, start=1):
-            if controllable and "playback" not in m.player.protocolCapabilities: # type: ignore
+        for i, m in enumerate(clients):
+            logger.info(f"Client {m.title} {m.protocolCapabilities}")
+            if controllable and "playback" not in m.protocolCapabilities: # type: ignore
                 continue
             results.append(
-                f"Result #{i}:\nMachine Identifier: {m.machineIdentifier}\n{format_client(m.player)}"
+                f"Result #{i}:\nMachine Identifier: {m.machineIdentifier}\n{format_client(m)}"
             )  # type: ignore
-
+        logger.info("Returning %s.", "\n---\n".join(results))
         return "\n---\n".join(results)
     except Exception as e:
         logger.exception("Failed to fetch client list.")
@@ -988,16 +999,18 @@ async def play_media_on_client(
 
         if not clients:
             return "No active clients connected to your Plex server."
+        logger.info("Found %d active clients.", len(clients))
         client = next((m for m in clients if m.machineIdentifier == machine_identifier), None)
         if not client:
             return f"No client found with machine identifier {machine_identifier}."
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
-
+        logger.info("Found client: %s with media key: %s", client.title, media_key)
         media = plex.fetchItems(int(media_key))
         if not media:
             return f"No media found with key {media_key}."
         media = media[0]
+        logger.info("Playing media: %s on client: %s", media.title, client.title)
         await asyncio.to_thread(client.playMedia, media)
         return f"Playing {media.title} on {client.title}." # type: ignore
     except Exception as e:
@@ -1009,6 +1022,7 @@ class MediaCommand(StrEnum):
     PLAY = "play"
     PAUSE = "pause"
     STOP = "stop"
+    RESUME = "resume"
     FAST_FORWARD = "fastForward"
     REWIND = "rewind"
     SKIP_NEXT = "skipNext"
@@ -1034,7 +1048,7 @@ async def control_client_playback(
         str,
         Field(
             description="The playback command to send (play, pause, stop).",
-            examples=["play", "pause", "stop", "fastForward", "rewind", "skipNext", "skipPrevious", "seek"],
+            examples=["play", "resume", "pause", "stop", "fastForward", "rewind", "skipNext", "skipPrevious", "seek"],
         ),
     ],
     seek_position: Annotated[
@@ -1068,10 +1082,12 @@ async def control_client_playback(
         return f"ERROR: Could not retrieve client. {str(e)}"
 
     if "playback" not in client.protocolCapabilities:
+        logger.info("Client '%s' does not support playback control.", client.title)
         return f"ERROR: Client '{client.title}' does not support playback control."
 
     try:
         command_enum = MediaCommand(command)
+        logger.info("Sending command '%s' to client '%s'.", command_enum, client.title)
         if command_enum == MediaCommand.SEEK and seek_position is not None:
             client.seekTo(seek_position * 1000)
         elif command_enum == MediaCommand.FAST_FORWARD:
@@ -1086,7 +1102,7 @@ async def control_client_playback(
             client.stop()
         elif command_enum == MediaCommand.PAUSE:
             client.pause()
-        elif command_enum == MediaCommand.PLAY:
+        elif command_enum == MediaCommand.PLAY or command_enum == MediaCommand.RESUME:
             client.play()
         else:
             return f"ERROR: Invalid command '{command}'."
@@ -1172,7 +1188,7 @@ async def get_client_machine_identifier(
 
         if not clients:
             return "No active clients connected to your Plex server."
-
+        logger.info("Searching for client with name '%s'.", client_name)
         for _, m in enumerate(clients, start=1):
             if m.title.lower() == client_name.lower(): # type: ignore
                 return f"Machine Identifier for client '{client_name}': {m.machineIdentifier}" # type: ignore
@@ -1218,10 +1234,11 @@ async def set_client_subtitles(
         return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
     except Exception as e:
         return f"ERROR: Could not retrieve client. {str(e)}"
-
+    logger.info("Found client '%s' for subtitle control.", client.title)
     try:
         sessions = await asyncio.to_thread(plex.sessions)
-        session = next((s for s in sessions if s.player.machineIdentifier == machine_identifier), None) # type: ignore
+        logger.info("Found %d active sessions on Plex server.", len(sessions))
+        session: PlexSession = next((s for s in sessions if s.player.machineIdentifier == machine_identifier), None) # type: ignore
         if not session:
             return f"ERROR: No active session found for client '{client.title}'."
         if not session.key:
@@ -1230,6 +1247,7 @@ async def set_client_subtitles(
             client.setSubtitleStream(-1)
             return f"Subtitles disabled on client '{client.title}'."
         items = plex.fetchItems(session.key)
+        logger.info("Found %d media items in session on client '%s'.", len(items), client.title)
         if not items:
             return f"ERROR: No media items found for session on client '{client.title}'."
         for _, item in enumerate(items):
@@ -1239,11 +1257,18 @@ async def set_client_subtitles(
                 if not part.subtitleStreams():
                     continue
                 for _, subtitle in enumerate(part.subtitleStreams()):
-                    if subtitle.language.lower() == "english" and not subtitle.forced:
-                        client.setSubtitleStream(subtitle.index)
+                    if subtitle.language.lower() == "english" and (not subtitle.forced and "force" not in subtitle.extendedDisplayTitle.lower()):
+                        logger.info(
+                            "Found English subtitle stream on client '%s' '%s'.",
+                            client.title,
+                            subtitle.extendedDisplayTitle,
+                        )
+                        client.connect()
+                        client.setSubtitleStream(subtitle, "subtitle")
                         return f"Subtitles enabled on client '{client.title}'."
         return f"ERROR: No English subtitles found for current media on client '{client.title}'."
     except NotFound:
+        logger.info("Client with machine identifier '%s' not found.", machine_identifier)
         return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
     except Exception as e:
         logger.exception("Failed to set subtitles on client '%s'.", machine_identifier)
@@ -1593,6 +1618,7 @@ async def recent_movies(
         all_recent = await asyncio.to_thread(
             lambda: plex.library.search(libtype="movie", sort="addedAt:desc")
         )
+        logger.info("Found %d total recent movies in library", len(all_recent))
         recent_movies_list = all_recent[:count]
 
         if not recent_movies_list:
@@ -1603,6 +1629,7 @@ async def recent_movies(
             formatted_movies.append(
                 f"Recent Movie #{i}:\nKey: {movie.ratingKey}\nAdded: {movie.addedAt.strftime('%Y-%m-%d')}\n{format_movie(movie)}"  # type: ignore
             )
+        logger.info("Formatted %d recent movies", len(formatted_movies))
         return "\n---\n".join(formatted_movies)
     except Exception as e:
         logger.exception("Failed to fetch recent movies")
@@ -1649,11 +1676,12 @@ async def get_movie_genres(
         movie = next((m for m in all_movies if m.ratingKey == key), None)  # type: ignore
         if not movie:
             return f"No movie found with key {movie_key}."
-
+        logger.info("Found movie: %s (Key: %d)", movie.title, key)  # type: ignore
         # Extract genres
         genres = (
             [genre.tag for genre in movie.genres] if hasattr(movie, "genres") else []
         )
+        logger.info("Genres for movie '%s': %s", movie.title, genres)  # type: ignore
         if not genres:
             return f"No genres found for movie '{movie.title}'."
         return f"Genres for '{movie.title}':\n{', '.join(genres)}"
